@@ -1,78 +1,154 @@
+/**
+ * Rain Analysis Logic for Dry-ve
+ * 
+ * Analyzes weather conditions along a route to provide:
+ * - Rain probability scores
+ * - Route recommendations
+ * - Weather-based route ranking
+ */
+
 import { Route, WeatherAPI, WeatherPoint } from '../services/api';
 
+// ============================================================================
+// Types
+// ============================================================================
+
+/** Weather analysis result for a single route */
 export interface RouteWeather {
     routeId: string;
-    averageRainChance: number;
-    maxRainChance: number;
+    averageRainChance: number;  // 0-100
+    maxRainChance: number;      // 0-100
     points: WeatherPoint[];
     recommendation: string;
-    score: number;
+    score: number;              // Lower is better (less rain)
 }
 
-// Calculate distance between two points using Haversine formula
-function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
-    const R = 6371; // Earth radius in km
+// ============================================================================
+// Configuration
+// ============================================================================
+
+/** Sample one weather point per this many kilometers */
+const SAMPLE_INTERVAL_KM = 5;
+
+/** Maximum number of weather samples per route */
+const MAX_SAMPLES = 15;
+
+/** Minimum number of weather samples per route */
+const MIN_SAMPLES = 3;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Calculate distance between two points using the Haversine formula
+ * @returns Distance in kilometers
+ */
+function haversineDistance(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number
+): number {
+    const R = 6371; // Earth's radius in km
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLng = (lng2 - lng1) * Math.PI / 180;
+
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
         Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
         Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
 }
 
-// Distance-based sampling: 1 sample per SAMPLE_INTERVAL_KM, capped at MAX_SAMPLES
-const SAMPLE_INTERVAL_KM = 5;
-const MAX_SAMPLES = 15;
-const MIN_SAMPLES = 3;
+/**
+ * Convert rain probability to a weather condition label
+ */
+function getCondition(probability: number): WeatherPoint['condition'] {
+    if (probability > 70) return 'Storm';
+    if (probability > 50) return 'Heavy Rain';
+    if (probability > 20) return 'Light Rain';
+    if (probability > 10) return 'Cloudy';
+    return 'Clear';
+}
 
-export const analyzeRouteWeather = async (route: Route): Promise<RouteWeather> => {
-    const samplePoints: typeof route.path = [];
+/**
+ * Generate a recommendation message based on rain data
+ */
+function getRecommendation(avgRain: number, maxRain: number): string {
+    if (maxRain > 70) return 'Stormy! Avoid.';
+    if (maxRain > 40) return 'Rainy sections ahead.';
+    if (avgRain > 20) return 'Might drizzle.';
+    if (maxRain < 10) return 'Dry route!';
+    return 'Safe to ride';
+}
 
-    // Always include start
-    samplePoints.push(route.path[0]);
+/**
+ * Select sample points along a route based on distance
+ * Uses distance-based sampling: 1 point per SAMPLE_INTERVAL_KM
+ */
+function selectSamplePoints(route: Route): Route['path'] {
+    const { path, distance } = route;
 
-    // Calculate how many samples based on distance
-    const targetSamples = Math.min(MAX_SAMPLES, Math.max(MIN_SAMPLES, Math.ceil(route.distance / SAMPLE_INTERVAL_KM)));
+    // Calculate target number of samples
+    const targetSamples = Math.min(
+        MAX_SAMPLES,
+        Math.max(MIN_SAMPLES, Math.ceil(distance / SAMPLE_INTERVAL_KM))
+    );
 
-    if (route.path.length <= targetSamples) {
-        // Short route: use all points
-        samplePoints.length = 0;
-        samplePoints.push(...route.path);
-    } else {
-        // Sample evenly based on distance
-        let accumulatedDistance = 0;
-        const intervalDistance = route.distance / (targetSamples - 1);
-        let nextThreshold = intervalDistance;
+    // For short routes, use all points
+    if (path.length <= targetSamples) {
+        return [...path];
+    }
 
-        for (let i = 1; i < route.path.length; i++) {
-            const prev = route.path[i - 1];
-            const curr = route.path[i];
-            accumulatedDistance += haversineDistance(prev.lat, prev.lng, curr.lat, curr.lng);
+    // Sample evenly based on distance
+    const samples: Route['path'] = [path[0]]; // Always include start
+    let accumulatedDistance = 0;
+    const intervalDistance = distance / (targetSamples - 1);
+    let nextThreshold = intervalDistance;
 
-            if (accumulatedDistance >= nextThreshold) {
-                samplePoints.push(curr);
-                nextThreshold += intervalDistance;
-            }
-        }
+    for (let i = 1; i < path.length; i++) {
+        const prev = path[i - 1];
+        const curr = path[i];
+        accumulatedDistance += haversineDistance(prev.lat, prev.lng, curr.lat, curr.lng);
 
-        // Always include end point
-        const lastPoint = route.path[route.path.length - 1];
-        if (samplePoints[samplePoints.length - 1] !== lastPoint) {
-            samplePoints.push(lastPoint);
+        if (accumulatedDistance >= nextThreshold) {
+            samples.push(curr);
+            nextThreshold += intervalDistance;
         }
     }
 
-    console.log(`[SAMPLING] Route "${route.summary}": ${route.distance}km → ${samplePoints.length} samples`);
+    // Always include end point
+    const lastPoint = path[path.length - 1];
+    if (samples[samples.length - 1] !== lastPoint) {
+        samples.push(lastPoint);
+    }
 
-    // Fetch weather for sample points
-    const promises = samplePoints.map(async (point, index) => {
+    return samples;
+}
+
+// ============================================================================
+// Main Analysis Function
+// ============================================================================
+
+/**
+ * Analyze weather conditions along a route
+ * 
+ * @param route - The route to analyze
+ * @returns Weather analysis with score, recommendation, and sample points
+ * 
+ * @example
+ * const weather = await analyzeRouteWeather(route);
+ * console.log(weather.recommendation); // "Dry route!"
+ */
+export async function analyzeRouteWeather(route: Route): Promise<RouteWeather> {
+    const samplePoints = selectSamplePoints(route);
+
+    // Fetch weather for all sample points in parallel
+    const weatherPromises = samplePoints.map(async (point, index) => {
         try {
             const rainChance = await WeatherAPI.getForecast(point.lat, point.lng);
-            // TODO: Consider travel time offset for more accurate 'future' weather
-            const timeOffset = index * (route.duration / samplePoints.length);
-
-            console.log(`  Sample ${index + 1}: [${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}] (T+${Math.round(timeOffset)}m) → ${rainChance}%`);
 
             return {
                 lat: point.lat,
@@ -81,8 +157,8 @@ export const analyzeRouteWeather = async (route: Route): Promise<RouteWeather> =
                 rainProbability: rainChance,
                 condition: getCondition(rainChance)
             } as WeatherPoint;
-        } catch (err) {
-            console.warn(`Failed to fetch weather for sample ${index}`, err);
+        } catch {
+            // Default to clear weather on error
             return {
                 lat: point.lat,
                 lng: point.lng,
@@ -93,42 +169,31 @@ export const analyzeRouteWeather = async (route: Route): Promise<RouteWeather> =
         }
     });
 
-    const results = await Promise.all(promises);
-    const weatherPoints: WeatherPoint[] = results;
+    const weatherPoints = await Promise.all(weatherPromises);
 
-    // Calculate stats
+    // Calculate statistics
     let totalRain = 0;
     let maxRain = 0;
-    results.forEach(p => {
-        totalRain += p.rainProbability;
-        if (p.rainProbability > maxRain) maxRain = p.rainProbability;
-    });
 
-    const avgRain = Math.round(totalRain / results.length);
+    for (const point of weatherPoints) {
+        totalRain += point.rainProbability;
+        if (point.rainProbability > maxRain) {
+            maxRain = point.rainProbability;
+        }
+    }
+
+    const avgRain = Math.round(totalRain / weatherPoints.length);
+
+    // Score formula: weighted average of avg and max rain
+    // Lower score = better (less rainy)
     const score = (avgRain * 0.4) + (maxRain * 0.6);
-
-    console.log(`[RESULT] Route "${route.summary}": Avg ${avgRain}%, Max ${maxRain}%, Score ${score.toFixed(1)}`);
-
-    let recommendation = "Safe to ride";
-    if (maxRain > 70) recommendation = "Stormy! Avoid.";
-    else if (maxRain > 40) recommendation = "Rainy sections ahead.";
-    else if (avgRain > 20) recommendation = "Might drizzle.";
-    else if (results.length > 0 && maxRain < 10) recommendation = "Dry route!";
 
     return {
         routeId: route.id,
         averageRainChance: avgRain,
         maxRainChance: maxRain,
         points: weatherPoints,
-        recommendation,
+        recommendation: getRecommendation(avgRain, maxRain),
         score
     };
-};
-
-function getCondition(probability: number): WeatherPoint['condition'] {
-    if (probability > 70) return 'Storm';
-    if (probability > 50) return 'Heavy Rain';
-    if (probability > 20) return 'Light Rain';
-    if (probability > 10) return 'Cloudy';
-    return 'Clear';
 }
