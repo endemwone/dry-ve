@@ -48,6 +48,8 @@ const Controls: FC<ControlsProps> = ({ onFindRoutes, isLoading, startPoint, endP
                         <span>Set both points to continue</span>
                     </div>
                 )}
+
+                {/* TODO: Add departure time picker for future weather forecasts */}
             </div>
         </Card>
     );

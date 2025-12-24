@@ -20,8 +20,6 @@ export interface WeatherPoint {
     condition: 'Clear' | 'Cloudy' | 'Light Rain' | 'Heavy Rain' | 'Storm';
 }
 
-
-
 interface OpenMeteoResponse {
     hourly: {
         time: string[];
@@ -29,11 +27,6 @@ interface OpenMeteoResponse {
     }
 }
 
-// Helper to decode OSRM Polyline (Geometry is usually encoded)
-// For simplicity in this demo, we'll ask OSRM for GeoJSON (easier to parse) 
-// or implement a simple decoder. 
-// OSRM defaults to polyline5. 
-// Let's use 'overview=full&geometries=geojson' for OSRM to get explicit coordinates.
 interface OSRMGeoJSONResponse {
     routes: {
         geometry: {
@@ -48,7 +41,6 @@ interface OSRMGeoJSONResponse {
 
 export const DirectionsAPI = {
     getRoutes: async (start: LatLng, end: LatLng): Promise<Route[]> => {
-        // Using OSRM Public Demo Server
         const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson&alternatives=true`;
 
         try {
@@ -60,40 +52,69 @@ export const DirectionsAPI = {
             return data.routes.map((route, index) => ({
                 id: `route-${index}`,
                 summary: `Route ${index + 1} (via ${route.weight_name})`,
-                duration: Math.round(route.duration / 60), // seconds to minutes
-                distance: parseFloat((route.distance / 1000).toFixed(1)), // meters to km
+                duration: Math.round(route.duration / 60),
+                distance: parseFloat((route.distance / 1000).toFixed(1)),
                 path: route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }))
             }));
         } catch (e) {
             console.error(e);
-            return [];
+            throw e; // Re-throw so App.tsx can handle it
         }
     }
 };
 
+// Weather cache: key = "lat,lng" (rounded to 2 decimals), value = { probability, timestamp }
+interface CacheEntry {
+    probability: number;
+    timestamp: number;
+}
+const weatherCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCacheKey(lat: number, lng: number): string {
+    return `${lat.toFixed(2)},${lng.toFixed(2)}`;
+}
+
 export const WeatherAPI = {
-    // Get forecast for a specific point
     getForecast: async (lat: number, lng: number): Promise<number> => {
-        // Open-Meteo Free API
-        // We get hourly precipitation_probability
-        // We only need the current/next hour for simplicity in this MVP
+        const cacheKey = getCacheKey(lat, lng);
+        const now = Date.now();
+
+        // Check cache
+        const cached = weatherCache.get(cacheKey);
+        if (cached && (now - cached.timestamp) < CACHE_TTL_MS) {
+            console.log(`[CACHE HIT] ${cacheKey}`);
+            return cached.probability;
+        }
+
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation_probability&forecast_days=1`;
 
         try {
             const response = await fetch(url);
             const data: OpenMeteoResponse = await response.json();
 
-            // Simple logic: get the max rain prob in the next 2 hours
             const currentHour = new Date().getHours();
             const nextHour = (currentHour + 1) % 24;
 
             const rainNow = data.hourly.precipitation_probability[currentHour] || 0;
             const rainNext = data.hourly.precipitation_probability[nextHour] || 0;
 
-            return Math.max(rainNow, rainNext);
+            const probability = Math.max(rainNow, rainNext);
+
+            // Store in cache
+            weatherCache.set(cacheKey, { probability, timestamp: now });
+            console.log(`[CACHE MISS] ${cacheKey} -> ${probability}%`);
+
+            return probability;
         } catch (e) {
             console.error("Weather fetch failed", e);
             return 0;
         }
+    },
+
+    // Clear cache (useful for testing or manual refresh)
+    clearCache: () => {
+        weatherCache.clear();
+        console.log('[CACHE CLEARED]');
     }
 };

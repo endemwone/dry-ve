@@ -1,23 +1,37 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Map, MapPin } from 'lucide-react';
 import MapView from './components/MapView';
 import RouteList from './components/RouteList';
 import Controls from './components/Controls';
+import Toast from './components/ui/Toast';
 import { DirectionsAPI, LatLng, Route } from './services/api';
 import { analyzeRouteWeather, RouteWeather } from './utils/rainLogic';
+
+interface ToastState {
+    message: string;
+    type: 'success' | 'error';
+}
 
 function App() {
     const [routes, setRoutes] = useState<Route[]>([]);
     const [weatherData, setWeatherData] = useState<Record<string, RouteWeather>>({});
     const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [toast, setToast] = useState<ToastState | null>(null);
+
+    // Rate limiting
+    const lastRequestRef = useRef<number>(0);
+    const RATE_LIMIT_MS = 2000;
 
     // Real interaction state
     const [startPoint, setStartPoint] = useState<LatLng | null>(null);
     const [endPoint, setEndPoint] = useState<LatLng | null>(null);
 
+    const showToast = (message: string, type: 'success' | 'error') => {
+        setToast({ message, type });
+    };
+
     const handleMapClick = (lat: number, lng: number) => {
-        // Toggle logic: If start is empty, set start. If start exists but end empty, set end. If both exist, reset start.
         if (!startPoint) {
             setStartPoint({ lat, lng });
         } else if (!endPoint) {
@@ -25,12 +39,20 @@ function App() {
         } else {
             setStartPoint({ lat, lng });
             setEndPoint(null);
-            setRoutes([]); // Clear old routes
+            setRoutes([]);
         }
     };
 
     const handleFindRoutes = async () => {
         if (!startPoint || !endPoint) return;
+
+        // Rate limiting check
+        const now = Date.now();
+        if (now - lastRequestRef.current < RATE_LIMIT_MS) {
+            showToast('Please wait a moment before searching again', 'error');
+            return;
+        }
+        lastRequestRef.current = now;
 
         setIsLoading(true);
         setRoutes([]);
@@ -39,11 +61,17 @@ function App() {
 
         try {
             const fetchedRoutes = await DirectionsAPI.getRoutes(startPoint, endPoint);
+
+            if (fetchedRoutes.length === 0) {
+                showToast('No routes found. Try different locations.', 'error');
+                setIsLoading(false);
+                return;
+            }
+
             setRoutes(fetchedRoutes);
 
             const weatherMap: Record<string, RouteWeather> = {};
 
-            // Analyze weather for found routes
             await Promise.all(fetchedRoutes.map(async (route) => {
                 const result = await analyzeRouteWeather(route);
                 weatherMap[route.id] = result;
@@ -52,17 +80,18 @@ function App() {
             setWeatherData(weatherMap);
 
             if (fetchedRoutes.length > 0) {
-                // Find best score
                 const best = fetchedRoutes.reduce((prev, curr) => {
                     const s1 = weatherMap[prev.id]?.score ?? 100;
                     const s2 = weatherMap[curr.id]?.score ?? 100;
                     return s1 < s2 ? prev : curr;
                 });
                 setSelectedRouteId(best.id);
+                showToast(`Found ${fetchedRoutes.length} route(s)!`, 'success');
             }
 
         } catch (error) {
             console.error("Failed", error);
+            showToast('Failed to fetch routes. Please try again.', 'error');
         } finally {
             setIsLoading(false);
         }
@@ -82,7 +111,7 @@ function App() {
                         </span>
                     </div>
                     <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
-                        Rain Map
+                        Dry-ve
                     </h1>
                 </header>
 
@@ -116,6 +145,13 @@ function App() {
                 />
             </div>
 
+            {toast && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast(null)}
+                />
+            )}
         </div>
     );
 }
