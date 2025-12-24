@@ -26,7 +26,7 @@ const inputStyles = `
 
 export const Input: FC<InputProps> = ({ className, label, ...props }) => {
     return (
-        <div className="relative">
+        <div className="relative w-full">
             {label && (
                 <label className="block text-xs font-semibold text-slate-400 mb-1 uppercase tracking-wider">
                     {label}

@@ -4,6 +4,7 @@
  * This module provides interfaces and functions for:
  * - Fetching driving routes from OSRM (Open Source Routing Machine)
  * - Fetching weather forecasts from Open-Meteo
+ * - Geocoding addresses using Nominatim
  */
 
 // ============================================================================
@@ -34,6 +35,13 @@ export interface WeatherPoint {
     condition: 'Clear' | 'Cloudy' | 'Light Rain' | 'Heavy Rain' | 'Storm';
 }
 
+/** Geocoding search result */
+export interface SearchResult {
+    label: string;
+    lat: number;
+    lng: number;
+}
+
 // ============================================================================
 // Internal Types (API Responses)
 // ============================================================================
@@ -55,6 +63,12 @@ interface OSRMGeoJSONResponse {
         distance: number;
         weight_name: string;
     }[];
+}
+
+interface NominatimResponse {
+    display_name: string;
+    lat: string;
+    lon: string;
 }
 
 // ============================================================================
@@ -157,5 +171,49 @@ export const WeatherAPI = {
     /** Clear the weather cache (useful for testing) */
     clearCache: (): void => {
         weatherCache.clear();
+    }
+};
+
+// ============================================================================
+// Geocoding API (Nominatim)
+// ============================================================================
+
+const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
+
+export const GeocodingAPI = {
+    /**
+     * Search for locations by address/name
+     * @param query - Address or place name to search for
+     * @returns Array of matching results
+     */
+    search: async (query: string): Promise<SearchResult[]> => {
+        if (!query.trim()) return [];
+
+        const params = new URLSearchParams({
+            q: query,
+            format: 'json',
+            limit: '5',
+            addressdetails: '1'
+        });
+
+        // Nominatim usage policy requires a User-Agent
+        // Browsers set it automatically, but we should be mindful of rate limits (1/sec)
+        const url = `${NOMINATIM_BASE_URL}/search?${params.toString()}`;
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Geocoding failed');
+
+            const data: NominatimResponse[] = await response.json();
+
+            return data.map(item => ({
+                label: item.display_name,
+                lat: parseFloat(item.lat),
+                lng: parseFloat(item.lon)
+            }));
+        } catch (e) {
+            console.error('Geocoding error:', e);
+            return [];
+        }
     }
 };

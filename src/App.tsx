@@ -171,6 +171,8 @@ export default function App() {
                     isLoading={isLoading}
                     startPoint={startPoint}
                     endPoint={endPoint}
+                    onSetStart={setStartPoint}
+                    onSetEnd={setEndPoint}
                 />
 
                 {/* Route Results */}

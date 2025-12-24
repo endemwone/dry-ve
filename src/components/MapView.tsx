@@ -74,7 +74,7 @@ interface MapBoundsProps {
 }
 
 /**
- * Component that adjusts map bounds to fit all points
+ * Component that adjusts map bounds to fit points and routes
  */
 function MapBounds({ routes, start, end }: MapBoundsProps) {
     const map = useMap();
@@ -92,7 +92,7 @@ function MapBounds({ routes, start, end }: MapBoundsProps) {
         });
 
         if (bounds.length > 0) {
-            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13, animate: true });
         }
     }, [routes, start, end, map]);
 
