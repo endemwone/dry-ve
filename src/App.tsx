@@ -149,7 +149,7 @@ export default function App() {
     return (
         <div className="h-screen w-full bg-slate-900 text-white flex flex-col md:flex-row overflow-hidden">
             {/* Sidebar */}
-            <aside className="w-full md:w-96 p-4 md:p-6 bg-slate-900 flex flex-col z-10 border-r border-slate-800 shadow-2xl overflow-y-auto">
+            <aside className="w-full md:w-96 md:h-full max-h-[45vh] md:max-h-none p-4 md:p-6 bg-slate-900 flex flex-col z-10 border-r border-slate-800 shadow-2xl overflow-y-auto">
                 {/* Header */}
                 <header className="mb-6 flex items-center gap-3">
                     <div className="flex -space-x-2">
