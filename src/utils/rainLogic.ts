@@ -31,10 +31,10 @@ export interface RouteWeather {
 const SAMPLE_INTERVAL_KM = 5;
 
 /** Maximum number of weather samples per route */
-const MAX_SAMPLES = 15;
+const MAX_SAMPLES = 50;
 
 /** Minimum number of weather samples per route */
-const MIN_SAMPLES = 3;
+const MIN_SAMPLES = 5;
 
 // ============================================================================
 // Constants
@@ -69,7 +69,7 @@ export function getSegmentColor(probability: number): string {
  * Calculate distance between two points using the Haversine formula
  * @returns Distance in kilometers
  */
-function haversineDistance(
+export function haversineDistance(
     lat1: number,
     lng1: number,
     lat2: number,

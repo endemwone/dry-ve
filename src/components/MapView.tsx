@@ -117,6 +117,10 @@ const MapView: FC<MapViewProps> = ({
     /**
      * Generate color-coded segments for the selected route
      */
+    /**
+     * Generate color-coded segments for the selected route
+     * Uses linear interpolation between weather samples to create a gradient-like effect
+     */
     const coloredSegments = useMemo(() => {
         if (!selectedRouteId) return null;
 
@@ -129,48 +133,86 @@ const MapView: FC<MapViewProps> = ({
         let currentSegment: LatLngTuple[] = [];
         let currentColor = '';
 
-        // Simple distance-based matching
-        // For each point in the route path, find the closest weather sample
-        // This is efficient enough for typical OSRM route outputs
-        route.path.forEach((point) => {
-            // Find closest weather point
-            // Optimization: In a real app we'd spatially index these, but simple linear search is fine here
-            // or even better, assume samples are distributed sequentially
-            let closestSample = weather.points[0];
-            let minDist = Infinity;
+        // 1. Map weather samples to their approximate distance along the route
+        // We assume weather points appear in order along the path
+        const sampleDistances: { dist: number; prob: number }[] = [];
+        let currentDist = 0;
+        let lastPoint = route.path[0];
+        let sampleIndex = 0;
 
-            for (const sample of weather.points) {
-                const dist = Math.hypot(sample.lat - point.lat, sample.lng - point.lng);
-                if (dist < minDist) {
-                    minDist = dist;
-                    closestSample = sample;
-                }
+        // Find distance for each weather sample by walking the route
+        // This maps the sparse weather points to the dense route path
+        for (const point of route.path) {
+            currentDist += Math.hypot(point.lat - lastPoint.lat, point.lng - lastPoint.lng); // Simplified distance for speed? No, let's use LatLng logic if possible, but for interpolation ratio simple hypot is okay-ish locally, but haversine is better.
+            // Actually, let's just use the weather points directly provided
+            // We need to know "At 5km, rain is 10%". "At 10km, rain is 20%".
+
+            // Optimization: matching exact coordinates might fail due to float precision
+            // Let's rely on the fact that selectSamplePoints usually picks existing points
+
+            const sample = weather.points[sampleIndex];
+            if (sample && Math.abs(sample.lat - point.lat) < 0.0001 && Math.abs(sample.lng - point.lng) < 0.0001) {
+                sampleDistances.push({ dist: currentDist, prob: sample.rainProbability });
+                sampleIndex++;
+            }
+            lastPoint = point;
+        }
+
+        // Ensure first and last are covered if matching failed (robustness)
+        if (sampleDistances.length === 0) {
+            sampleDistances.push({ dist: 0, prob: weather.points[0].rainProbability });
+        }
+        if (sampleIndex < weather.points.length) {
+            // Append remaining
+            for (let i = sampleIndex; i < weather.points.length; i++) {
+                sampleDistances.push({ dist: currentDist, prob: weather.points[i].rainProbability });
+            }
+        }
+
+        // 2. Walk route again and interpolate
+        currentDist = 0;
+        lastPoint = route.path[0];
+        let nextSampleIdx = 0;
+
+        route.path.forEach((point) => {
+            // Update distance
+            // We use simple Euclidean here for relative ratios to avoid expensive Haversine in loop
+            // Scale doesn't matter as long as it's consistent with above
+            currentDist += Math.hypot(point.lat - lastPoint.lat, point.lng - lastPoint.lng);
+            lastPoint = point;
+
+            // Find surrounding samples
+            // We want sample[i].dist <= currentDist <= sample[i+1].dist
+            while (nextSampleIdx < sampleDistances.length - 1 && currentDist > sampleDistances[nextSampleIdx + 1].dist) {
+                nextSampleIdx++;
             }
 
-            const color = getSegmentColor(closestSample.rainProbability);
+            const prev = sampleDistances[nextSampleIdx];
+            const next = sampleDistances[nextSampleIdx + 1] || prev; // Handle end of route
+
+            let prob = prev.prob;
+            if (next.dist > prev.dist) {
+                const ratio = (currentDist - prev.dist) / (next.dist - prev.dist);
+                prob = prev.prob + (next.prob - prev.prob) * Math.max(0, Math.min(1, ratio));
+            }
+
+            const color = getSegmentColor(prob);
             const pos: LatLngTuple = [point.lat, point.lng];
 
             if (!currentColor) currentColor = color;
 
             if (color !== currentColor) {
-                // Color changed, verify we have enough points for a line
                 if (currentSegment.length > 0) {
-                    // Add the current point to end the previous segment cleanly
-                    // so there are no gaps
-                    currentSegment.push(pos);
+                    currentSegment.push(pos); // Connect segments
                     segments.push({ positions: currentSegment, color: currentColor });
                 }
-                // Start new segment
-                currentSegment = [pos]; // Overlap with previous point to prevent gaps? 
-                // Actually to preventing gaps we need the *previous* point as start of new segment.
-                // But simplified: just ensure segments share the boundary point.
+                currentSegment = [pos];
                 currentColor = color;
             } else {
                 currentSegment.push(pos);
             }
         });
 
-        // Push last segment
         if (currentSegment.length > 0) {
             segments.push({ positions: currentSegment, color: currentColor });
         }
