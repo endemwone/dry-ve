@@ -37,8 +37,33 @@ const MAX_SAMPLES = 15;
 const MIN_SAMPLES = 3;
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+export const RAIN_COLORS = {
+    SAFE: '#22c55e',      // 0-10% (Green)
+    LOW: '#84cc16',       // 10-30% (Lime)
+    MODERATE: '#eab308',  // 30-50% (Yellow)
+    UNPLEASANT: '#f97316',// 50-70% (Orange)
+    HEAVY: '#ef4444',     // 70-90% (Red)
+    SEVERE: '#7e22ce'     // 90-100% (Purple)
+};
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
+
+/**
+ * Get color based on rain probability
+ */
+export function getSegmentColor(probability: number): string {
+    if (probability > 90) return RAIN_COLORS.SEVERE;
+    if (probability > 70) return RAIN_COLORS.HEAVY;
+    if (probability > 50) return RAIN_COLORS.UNPLEASANT;
+    if (probability > 30) return RAIN_COLORS.MODERATE;
+    if (probability > 10) return RAIN_COLORS.LOW;
+    return RAIN_COLORS.SAFE;
+}
 
 /**
  * Calculate distance between two points using the Haversine formula
