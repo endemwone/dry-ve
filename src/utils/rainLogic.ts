@@ -146,7 +146,7 @@ export async function analyzeRouteWeather(route: Route): Promise<RouteWeather> {
     const samplePoints = selectSamplePoints(route);
 
     // Fetch weather for all sample points in parallel
-    const weatherPromises = samplePoints.map(async (point, index) => {
+    const weatherPromises = samplePoints.map(async (point) => {
         try {
             const rainChance = await WeatherAPI.getForecast(point.lat, point.lng);
 
