@@ -1,3 +1,12 @@
+/**
+ * Controls Component
+ * 
+ * Displays the route search form with:
+ * - Start/end point displays (set by clicking the map)
+ * - Search button with loading state
+ * - Helpful prompts for user guidance
+ */
+
 import { FC } from 'react';
 import { Search, MapPin } from 'lucide-react';
 import { Button } from './ui/Button';
@@ -12,37 +21,57 @@ interface ControlsProps {
     endPoint: LatLng | null;
 }
 
-const Controls: FC<ControlsProps> = ({ onFindRoutes, isLoading, startPoint, endPoint }) => {
+/**
+ * Format coordinates for display
+ */
+function formatCoords(point: LatLng | null): string {
+    if (!point) return 'Click on map...';
+    return `${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`;
+}
+
+const Controls: FC<ControlsProps> = ({
+    onFindRoutes,
+    isLoading,
+    startPoint,
+    endPoint
+}) => {
+    const canSearch = startPoint && endPoint && !isLoading;
+
     return (
         <Card className="p-6 mb-6">
             <div className="space-y-4">
-                <div className="text-sm text-slate-400 mb-2">
-                    <p>Click on the map to set points.</p>
-                </div>
+                {/* Instructions */}
+                <p className="text-sm text-slate-400">
+                    Click on the map to set points.
+                </p>
 
+                {/* Coordinate displays */}
                 <Input
                     label="Start"
-                    value={startPoint ? `${startPoint.lat.toFixed(4)}, ${startPoint.lng.toFixed(4)}` : 'Click on map...'}
+                    value={formatCoords(startPoint)}
                     disabled
-                // Add an icon or styling to indicate it's "set by map"
+                    readOnly
                 />
                 <Input
                     label="Destination"
-                    value={endPoint ? `${endPoint.lat.toFixed(4)}, ${endPoint.lng.toFixed(4)}` : 'Click on map...'}
+                    value={formatCoords(endPoint)}
                     disabled
+                    readOnly
                 />
 
+                {/* Search button */}
                 <Button
                     onClick={onFindRoutes}
                     isLoading={isLoading}
-                    disabled={isLoading || !startPoint || !endPoint}
+                    disabled={!canSearch}
                     className="w-full mt-4"
                     icon={<Search size={20} />}
                 >
                     {isLoading ? 'Calculating...' : 'Find Safe Routes'}
                 </Button>
 
-                {(!startPoint || !endPoint) && (
+                {/* Helper message */}
+                {!canSearch && !isLoading && (
                     <div className="flex items-center gap-2 text-yellow-500 text-xs bg-yellow-500/10 p-2 rounded">
                         <MapPin size={14} />
                         <span>Set both points to continue</span>
