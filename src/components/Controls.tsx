@@ -8,7 +8,7 @@
  */
 
 import { FC, useState, useEffect, useRef } from 'react';
-import { Search, MapPin, X } from 'lucide-react';
+import { Search, MapPin, X, Navigation } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Card } from './ui/Card';
@@ -30,9 +30,11 @@ interface LocationSearchProps {
     label: string;
     point: LatLng | null;
     onSelect: (point: LatLng | null) => void;
+    onUseCurrentLocation?: () => void;
+    isLocating?: boolean;
 }
 
-function LocationSearch({ label, point, onSelect }: LocationSearchProps) {
+function LocationSearch({ label, point, onSelect, onUseCurrentLocation, isLocating }: LocationSearchProps) {
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<SearchResult[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -91,7 +93,7 @@ function LocationSearch({ label, point, onSelect }: LocationSearchProps) {
 
     return (
         <div className="relative" ref={wrapperRef}>
-            <div className="relative">
+            <div className="relative flex items-end gap-2">
                 <Input
                     label={label}
                     value={query}
@@ -102,10 +104,26 @@ function LocationSearch({ label, point, onSelect }: LocationSearchProps) {
                     placeholder="Search address or click map..."
                     className="pr-8"
                 />
+
+                {onUseCurrentLocation && (
+                    <button
+                        onClick={onUseCurrentLocation}
+                        disabled={isLocating}
+                        className="p-3 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-blue-400 hover:border-blue-500 transition-colors disabled:opacity-50"
+                        title="Use my current location"
+                    >
+                        {isLocating ? (
+                            <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                            <Navigation size={20} />
+                        )}
+                    </button>
+                )}
+
                 {query && (
                     <button
                         onClick={handleClear}
-                        className="absolute right-2 top-8 text-slate-500 hover:text-white"
+                        className={`absolute top-8 text-slate-500 hover:text-white ${onUseCurrentLocation ? 'right-14' : 'right-2'}`}
                     >
                         <X size={16} />
                     </button>
@@ -129,7 +147,7 @@ function LocationSearch({ label, point, onSelect }: LocationSearchProps) {
             )}
 
             {isSearching && (
-                <div className="absolute right-3 top-9">
+                <div className={`absolute top-9 ${onUseCurrentLocation ? 'right-14' : 'right-3'}`}>
                     <div className="w-4 h-4 border-2 border-slate-600 border-t-blue-500 rounded-full animate-spin" />
                 </div>
             )}
@@ -145,7 +163,32 @@ const Controls: FC<ControlsProps> = ({
     onSetStart,
     onSetEnd
 }) => {
+    const [isLocating, setIsLocating] = useState(false);
     const canSearch = startPoint && endPoint && !isLoading;
+
+    const handleGetCurrentLocation = () => {
+        if (!navigator.geolocation) {
+            alert('Geolocation is not supported by your browser');
+            return;
+        }
+
+        setIsLocating(true);
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                onSetStart({
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                });
+                setIsLocating(false);
+            },
+            (error) => {
+                console.error('Geolocation error:', error);
+                alert('Unable to retrieve your location'); // Could be improved with Toast logic but simple for now
+                setIsLocating(false);
+            },
+            { timeout: 10000, enableHighAccuracy: true }
+        );
+    };
 
     return (
         <Card className="p-6 mb-6">
@@ -159,6 +202,8 @@ const Controls: FC<ControlsProps> = ({
                     label="Start"
                     point={startPoint}
                     onSelect={onSetStart}
+                    onUseCurrentLocation={handleGetCurrentLocation}
+                    isLocating={isLocating}
                 />
 
                 <LocationSearch
